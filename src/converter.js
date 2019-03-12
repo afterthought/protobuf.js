@@ -88,7 +88,7 @@ function genValuePartial_fromObject(gen, field, fieldIndex, prop) {
                 ("if(d%s===null)", prop)
                 ("m%s={}", prop)
                 ("else {")
-                ("const finalDate = typeof d%s === 'string' ? new Date(d%s) : d%s", prop, prop, prop)
+                ("var finalDate = typeof d%s === 'string' ? new Date(d%s) : d%s", prop, prop, prop)
                 ("m%s={seconds: Math.floor(finalDate.getTime() / 1000),", prop)
                 ("nanos: finalDate.getMilliseconds() * 1000000}");
                 ("}")

@@ -1,6 +1,6 @@
 /*!
  * protobuf.js v6.8.8 (c) 2016, daniel wirtz
- * compiled tue, 12 mar 2019 19:22:24 utc
+ * compiled tue, 12 mar 2019 19:29:56 utc
  * licensed under the bsd-3-clause license
  * see: https://github.com/dcodeio/protobuf.js for details
  */
@@ -1199,7 +1199,7 @@ function genValuePartial_fromObject(gen, field, fieldIndex, prop) {
                 ("if(d%s===null)", prop)
                 ("m%s={}", prop)
                 ("else {")
-                ("const finalDate = typeof d%s === 'string' ? new Date(d%s) : d%s", prop, prop, prop)
+                ("var finalDate = typeof d%s === 'string' ? new Date(d%s) : d%s", prop, prop, prop)
                 ("m%s={seconds: Math.floor(finalDate.getTime() / 1000),", prop)
                 ("nanos: finalDate.getMilliseconds() * 1000000}");
                 ("}")
