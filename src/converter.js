@@ -87,9 +87,11 @@ function genValuePartial_fromObject(gen, field, fieldIndex, prop) {
             gen
                 ("if(d%s===null)", prop)
                 ("m%s={}", prop)
-                ("else")
-                ("m%s={seconds: Math.floor(d%s.getTime() / 1000),", prop, prop)
-                ("nanos: d%s.getMilliseconds() * 1000000}", prop);
+                ("else {")
+                ("const finalDate = typeof d%s === 'string' ? new Date(d%s) : d%s", prop, prop, prop)
+                ("m%s={seconds: Math.floor(finalDate.getTime() / 1000),", prop)
+                ("nanos: finalDate.getMilliseconds() * 1000000}");
+                ("}")
         } else gen
             ("if(typeof d%s!==\"object\")", prop)
                 ("throw TypeError(%j)", field.fullName + ": object expected")
