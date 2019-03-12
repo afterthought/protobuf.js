@@ -62,6 +62,7 @@ function genValuePartial_fromObject(gen, field, fieldIndex, prop) {
                     break;
                 case "UInt64Value":
                     isUnsigned = true;
+                    break;
                 case "Int64Value": gen
                     ("if(util.Long)")
                     ("(m%s={value: util.Long.fromValue(d%s)).unsigned=%j}", prop, prop, isUnsigned)
@@ -88,10 +89,10 @@ function genValuePartial_fromObject(gen, field, fieldIndex, prop) {
                 ("if(d%s===null)", prop)
                 ("m%s={}", prop)
                 ("else {")
-                ("var finalDate = typeof d%s === 'string' ? new Date(d%s) : d%s", prop, prop, prop)
+                ("var finalDate = (typeof d%s===\"string\") ? new Date(d%s) : d%s", prop, prop, prop)
                 ("m%s={seconds: Math.floor(finalDate.getTime() / 1000),", prop)
-                ("nanos: finalDate.getMilliseconds() * 1000000}");
-                ("}")
+                ("nanos: finalDate.getMilliseconds() * 1000000}")
+                ("}");
         } else gen
             ("if(typeof d%s!==\"object\")", prop)
                 ("throw TypeError(%j)", field.fullName + ": object expected")
