@@ -1,6 +1,6 @@
 /*!
- * protobuf.js v6.8.9 (c) 2016, daniel wirtz
- * compiled fri, 17 apr 2020 21:58:51 utc
+ * protobuf.js v6.9.0 (c) 2016, daniel wirtz
+ * compiled tue, 09 jun 2020 00:10:30 utc
  * licensed under the bsd-3-clause license
  * see: https://github.com/dcodeio/protobuf.js for details
  */
@@ -1520,6 +1520,20 @@ var converter = exports;
 var Enum = require(15),
     util = require(37);
 
+var WRAPPER_TYPES = [
+  'BytesValue',
+  'BoolValue',
+  'UInt32Value',
+  'Int32Value',
+  'UInt64Value',
+  'Int64Value',
+  'FloatValue',
+  'DoubleValue',
+  'StringValue'
+]
+
+var TIMESTAMP_TYPE = 'Timestamp'
+
 /**
  * Generates a partial value fromObject conveter.
  * @param {Codegen} gen Codegen instance
@@ -1544,6 +1558,53 @@ function genValuePartial_fromObject(gen, field, fieldIndex, prop) {
                     ("break");
             } gen
             ("}");
+	} else if (WRAPPER_TYPES.indexOf(field.resolvedType.name) !== -1) {
+	    switch (field.resolvedType.name) {
+		case "BoolValue": gen
+		    ("m%s={value: Boolean(d%s)}", prop, prop);
+		    break;
+		case "StringValue": gen
+		    ("m%s={value: String(d%s)}", prop, prop);
+		    break;
+		case "Int32Value": gen
+		    ("m%s={value: d%s|0}", prop, prop);
+		    break;
+		case "UInt32Value": gen
+		    ("m%s={value: d%s|>>>0}", prop, prop);
+		    break;
+		case "UInt64Value":
+		    isUnsigned = true;
+		    break;
+		case "Int64Value": gen
+		    ("if(util.Long)")
+		    ("(m%s={value: util.Long.fromValue(d%s)).unsigned=%j}", prop, prop, isUnsigned)
+		    ("else if(typeof d%s===\"string\")", prop)
+		    ("m%s={value: parseInt(d%s,10)}", prop, prop)
+		    ("else if(typeof d%s===\"number\")", prop)
+		    ("m%s={value: d%s}", prop, prop)
+		    ("else if(typeof d%s===\"object\")", prop)
+		    ("m%s={value: new util.LongBits(d%s.low>>>0,d%s.high>>>0).toNumber(%s)}", prop, prop, prop, isUnsigned ? "true" : "");
+		    break;
+		case "DoubleValue":
+		case "FloatValue": gen
+		    ("m%s={value: Number(d%s)}", prop, prop);
+		    break;
+		case "BytesValue": gen
+		    ("if(typeof d%s===\"string\")", prop)
+		    ("util.base64.decode(d%s,m%s={value: util.newBuffer(util.base64.length(d%s))},0)", prop, prop, prop)
+		    ("else if(d%s.length)", prop)
+		    ("m%s={value: d%s}", prop, prop);
+		    break;
+	    }
+	} else if (field.resolvedType.name === TIMESTAMP_TYPE) {
+	    gen
+		("if(d%s===null)", prop)
+		("m%s={}", prop)
+		("else {")
+		("var finalDate = (typeof d%s===\"string\") ? new Date(d%s) : d%s", prop, prop, prop)
+		("m%s={seconds: Math.floor(finalDate.getTime() / 1000),", prop)
+		("nanos: finalDate.getMilliseconds() * 1000000}")
+		("}");
         } else gen
             ("if(typeof d%s!==\"object\")", prop)
                 ("throw TypeError(%j)", field.fullName + ": object expected")
@@ -1669,6 +1730,13 @@ function genValuePartial_toObject(gen, field, fieldIndex, prop) {
     if (field.resolvedType) {
         if (field.resolvedType instanceof Enum) gen
             ("d%s=o.enums===String?types[%i].values[m%s]:m%s", prop, fieldIndex, prop, prop);
+	else if (WRAPPER_TYPES.indexOf(field.resolvedType.name) !== -1) {
+	  gen
+	    ("d%s=m%s.value", prop, prop);
+	} else if (field.resolvedType.name === TIMESTAMP_TYPE) {
+	  gen
+	    ("d%s=new Date((m%s.seconds * 1000) + (m%s.nanos / 1000000))", prop, prop, prop);
+	}
         else gen
             ("d%s=types[%i].toObject(m%s,o)", prop, fieldIndex, prop);
     } else {
@@ -2035,8 +2103,9 @@ var Namespace = require(23),
  * @param {Object.<string,*>} [options] Declared options
  * @param {string} [comment] The comment for this enum
  * @param {Object.<string,string>} [comments] The value comments for this enum
+ * @param {Object.<string,Object<string,*>>} [valueOptions] Declared options for values of this enum
  */
-function Enum(name, values, options, comment, comments) {
+function Enum(name, values, options, comment, comments, valueOptions) {
     ReflectionObject.call(this, name, options);
 
     if (values && typeof values !== "object")
@@ -2072,6 +2141,12 @@ function Enum(name, values, options, comment, comments) {
      */
     this.reserved = undefined; // toJSON
 
+    /**
+     *  Declared options for values of this enum.
+     * @type {Object.<string,Object<string,*>>|undefined}
+     */
+    this.valueOptions = valueOptions; // toJSON
+
     // Note that values inherit valuesById on their prototype which makes them a TypeScript-
     // compatible enum. This is used by pbts to write actual enum definitions that work for
     // static and reflection code alike instead of emitting generic object definitions.
@@ -2087,6 +2162,7 @@ function Enum(name, values, options, comment, comments) {
  * @interface IEnum
  * @property {Object.<string,number>} values Enum values
  * @property {Object.<string,*>} [options] Enum options
+ * @property {Object.<string,Object<string,*>>} [valueOptions] Declared options for values of this enum
  */
 
 /**
@@ -2097,7 +2173,7 @@ function Enum(name, values, options, comment, comments) {
  * @throws {TypeError} If arguments are invalid
  */
 Enum.fromJSON = function fromJSON(name, json) {
-    var enm = new Enum(name, json.values, json.options, json.comment, json.comments);
+    var enm = new Enum(name, json.values, json.options, json.comment, json.comments, json.valueOptions);
     enm.reserved = json.reserved;
     return enm;
 };
@@ -2111,12 +2187,29 @@ Enum.prototype.toJSON = function toJSON(toJSONOptions) {
     var keepComments = toJSONOptions ? Boolean(toJSONOptions.keepComments) : false;
     return util.toObject([
         "options"  , this.options,
+        "valueOptions"  , this.valueOptions,
         "values"   , this.values,
         "reserved" , this.reserved && this.reserved.length ? this.reserved : undefined,
         "comment"  , keepComments ? this.comment : undefined,
         "comments" , keepComments ? this.comments : undefined
     ]);
 };
+
+/**
+ * Adds an option for a specific enum value.
+ * @param {string} [valueName] Enum value for option
+ * @param {string} [optionName] Name of option
+ * @param {*} [optionValue] Value of option
+ * @returns {Enum} `this`
+ */
+Enum.prototype.setValueOption = function(valueName, optionName, optionValue) {
+  if (!this.valueOptions)
+    this.valueOptions = {};
+  if (!this.valueOptions[valueName])
+    this.valueOptions[valueName] = {};
+  this.valueOptions[valueName][optionName] = optionValue;
+  return this;
+}
 
 /**
  * Adds a value to this enum.
@@ -4510,23 +4603,24 @@ function parse(source, root, options) {
 
         skip("=");
         var value = parseId(next(), true),
-            dummy = {};
+            dummy = {},
+            valueOptionSetter = parent.setValueOption.bind(parent, token);
         ifBlock(dummy, function parseEnumValue_block(token) {
 
             /* istanbul ignore else */
             if (token === "option") {
-                parseOption(dummy, token); // skip
+                parseOption(valueOptionSetter, token);
                 skip(";");
             } else
                 throw illegal(token);
 
         }, function parseEnumValue_line() {
-            parseInlineOptions(dummy); // skip
+            parseInlineOptions(valueOptionSetter);
         });
         parent.add(token, value, dummy.comment);
     }
 
-    function parseOption(parent, token) {
+    function parseOption(parentOrSetter, token) {
         var isCustom = skip("(", true);
 
         /* istanbul ignore if */
@@ -4544,10 +4638,10 @@ function parse(source, root, options) {
             }
         }
         skip("=");
-        parseOptionValue(parent, name);
+        parseOptionValue(parentOrSetter, name);
     }
 
-    function parseOptionValue(parent, name) {
+    function parseOptionValue(parentOrSetter, name) {
         if (skip("{", true)) { // { a: "foo" b { c: "bar" } }
             do {
                 /* istanbul ignore if */
@@ -4555,34 +4649,36 @@ function parse(source, root, options) {
                     throw illegal(token, "name");
 
                 if (peek() === "{")
-                    parseOptionValue(parent, name + "." + token);
+                    parseOptionValue(parentOrSetter, name + "." + token);
                 else {
                     skip(":");
                     if (peek() === "{")
-                        parseOptionValue(parent, name + "." + token);
+                        parseOptionValue(parentOrSetter, name + "." + token);
                     else
-                        setOption(parent, name + "." + token, readValue(true));
+                        setOption(parentOrSetter, name + "." + token, readValue(true));
                 }
                 skip(",", true);
             } while (!skip("}", true));
         } else
-            setOption(parent, name, readValue(true));
+            setOption(parentOrSetter, name, readValue(true));
         // Does not enforce a delimiter to be universal
     }
 
-    function setOption(parent, name, value) {
-        if (parent.setOption)
-            parent.setOption(name, value);
+    function setOption(parentOrSetter, name, value) {
+        if (typeof parentOrSetter === "function")
+            parentOrSetter(name, value);
+        else if (parentOrSetter.setOption)
+            parentOrSetter.setOption(name, value);
     }
 
-    function parseInlineOptions(parent) {
+    function parseInlineOptions(parentOrSetter) {
         if (skip("[", true)) {
             do {
-                parseOption(parent, "option");
+                parseOption(parentOrSetter, "option");
             } while (skip(",", true));
             skip("]");
         }
-        return parent;
+        return parentOrSetter;
     }
 
     function parseService(parent, token) {
@@ -7571,7 +7667,7 @@ util.emptyObject = Object.freeze ? Object.freeze({}) : /* istanbul ignore next *
  * @type {boolean}
  * @const
  */
-util.isNode = Boolean(util.global.process && util.global.process.versions && util.global.process.versions.node);
+util.isNode = Boolean(process && process.versions && process.versions.node);
 
 /**
  * Tests if the specified value is an integer.
@@ -8155,15 +8251,20 @@ wrappers[".google.protobuf.Any"] = {
 
         // unwrap value type if mapped
         if (object && object["@type"]) {
-            var type = this.lookup(object["@type"]);
+             // Only use fully qualified type name after the last '/'
+            var name = object["@type"].substring(object["@type"].lastIndexOf("/") + 1);
+            var type = this.lookup(name);
             /* istanbul ignore else */
             if (type) {
                 // type_url does not accept leading "."
                 var type_url = object["@type"].charAt(0) === "." ?
                     object["@type"].substr(1) : object["@type"];
                 // type_url prefix is optional, but path seperator is required
+                if (type_url.indexOf("/") === -1) {
+                    type_url = "/" + type_url;
+                }
                 return this.create({
-                    type_url: "/" + type_url,
+                    type_url: type_url,
                     value: type.encode(type.fromObject(object)).finish()
                 });
             }
@@ -8174,10 +8275,17 @@ wrappers[".google.protobuf.Any"] = {
 
     toObject: function(message, options) {
 
+        // Default prefix
+        var googleApi = "type.googleapis.com/";
+        var prefix = "";
+        var name = "";
+
         // decode value if requested and unmapped
         if (options && options.json && message.type_url && message.value) {
             // Only use fully qualified type name after the last '/'
-            var name = message.type_url.substring(message.type_url.lastIndexOf("/") + 1);
+            name = message.type_url.substring(message.type_url.lastIndexOf("/") + 1);
+            // Separate the prefix used
+            prefix = message.type_url.substring(0, message.type_url.lastIndexOf("/") + 1);
             var type = this.lookup(name);
             /* istanbul ignore else */
             if (type)
@@ -8187,7 +8295,14 @@ wrappers[".google.protobuf.Any"] = {
         // wrap value if unmapped
         if (!(message instanceof this.ctor) && message instanceof Message) {
             var object = message.$type.toObject(message, options);
-            object["@type"] = message.$type.fullName;
+            var messageName = message.$type.fullName[0] === "." ?
+                message.$type.fullName.substr(1) : message.$type.fullName;
+            // Default to type.googleapis.com prefix if no prefix is used
+            if (prefix === "") {
+                prefix = googleApi;
+            }
+            name = prefix + messageName;
+            object["@type"] = name;
             return object;
         }
 
